@@ -14,41 +14,6 @@ import (
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/service"
 )
 
-// Task - задача от координатора воркеру
-type Task struct {
-	Lines        []string `json:"lines"`
-	StartLineNum int      `json:"start_line_num"`
-	// флаги grep (из конфига)
-	After      int    `json:"after"`
-	Before     int    `json:"before"`
-	Context    int    `json:"context"`
-	Count      bool   `json:"count"`
-	IgnoreCase bool   `json:"ignore_case"`
-	Invert     bool   `json:"invert"`
-	Fixed      bool   `json:"fixed"`
-	LineNumber bool   `json:"line_number"`
-	Pattern    string `json:"pattern"`
-}
-
-// Result - результат от воркера координатору
-type Result struct {
-	Lines []string `json:"lines,omitempty"`
-	Count int      `json:"count,omitempty"`
-	Error string   `json:"error,omitempty"`
-}
-
-// Coordinator запускает координатора, который управляет распределённой обработкой
-// (разбивает входные данные на шарды, распределяет по узлам, ждёт кворума, собирает результат и выводит его)
-func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader interface{}) error {
-
-	slog.Info("Starting coordinator in distributed mode", "cluster", cfg)
-
-	// TODO: реализовать логику координатора
-
-	<-ctx.Done()
-	return nil
-}
-
 // WorkerServer запускает узел-воркер, который обрабатывает полученные задачи
 // (вызывается координатором для каждого узла в отдельном процессе)
 func WorkerServer(ctx context.Context, cfg *configuration.Config) error {
