@@ -51,18 +51,14 @@ func main() {
 	var inputReader io.Reader
 
 	if cfg.Filename != "" {
-
 		file, err := os.Open(cfg.Filename)
 		if err != nil {
 			slog.Error("Не удалось открыть файл", "filename", cfg.Filename, "error", err)
 			os.Exit(1)
 		}
 		defer file.Close()
-
 		inputReader = file
-
 	} else {
-
 		inputReader = os.Stdin
 	}
 
