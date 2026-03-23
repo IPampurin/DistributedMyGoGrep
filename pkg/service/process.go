@@ -6,11 +6,12 @@ import (
 	"sort"
 
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/configuration"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/models"
 )
 
 // ProcessLines обрабатывает готовый слайс строк (без чтения из ридера)
 // startLineNum - номер первой строки в слайсе (для глобальной нумерации)
-func ProcessLines(cfg *configuration.Config, lines []string, startLineNum int) (*GrepResult, error) {
+func ProcessLines(cfg *configuration.Config, lines []string, startLineNum int) (*models.GrepResult, error) {
 
 	// подготавливаем регулярное выражение
 	pattern := cfg.Pattern
@@ -52,7 +53,7 @@ func ProcessLines(cfg *configuration.Config, lines []string, startLineNum int) (
 			}
 		}
 
-		return &GrepResult{
+		return &models.GrepResult{
 				Count:   count,
 				IsCount: true},
 			nil
@@ -97,7 +98,7 @@ func ProcessLines(cfg *configuration.Config, lines []string, startLineNum int) (
 		}
 	}
 
-	return &GrepResult{
+	return &models.GrepResult{
 			Lines:   resultLines,
 			IsCount: false},
 		nil

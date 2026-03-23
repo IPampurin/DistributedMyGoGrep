@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/configuration"
-	"github.com/IPampurin/DistributedMyGoGrep/pkg/server"
-	"github.com/IPampurin/DistributedMyGoGrep/pkg/service"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/distributed"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/local"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/models"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/node"
 )
 
 func main() {
@@ -69,7 +71,7 @@ func main() {
 		// локальный режим
 		slog.Info("Локальный режим")
 
-		result, err := service.LocalGrep(cfg, inputReader)
+		result, err := local.Grep(cfg, inputReader)
 		if err != nil {
 			slog.Error("Локальный grep завершился с ошибкой", "error", err)
 			os.Exit(1)
@@ -84,7 +86,7 @@ func main() {
 		workerCtx, workerCancel := context.WithTimeout(ctx, nodeTimeout)
 		defer workerCancel()
 
-		if err := server.WorkerServer(workerCtx, cfg); err != nil {
+		if err := node.Run(workerCtx, cfg); err != nil {
 			slog.Error("Воркер-сервер завершился с ошибкой", "error", err)
 			os.Exit(1)
 		}
@@ -92,7 +94,9 @@ func main() {
 	default:
 		// режим координатора
 		slog.Info("Режим координатора", "cluster", cfg.ClusterAddrs)
-		if err := server.Coordinator(ctx, cfg, inputReader); err != nil {
+
+		coord := distributed.New(cfg, cfg.ClusterAddrs)
+		if err := coord.Run(ctx, inputReader); err != nil {
 			slog.Error("Координатор завершился с ошибкой", "error", err)
 			os.Exit(1)
 		}
@@ -102,7 +106,7 @@ func main() {
 }
 
 // printResult выводит результат локальной обработки в stdout
-func printResult(cfg *configuration.Config, result *service.GrepResult) {
+func printResult(cfg *configuration.Config, result *models.GrepResult) {
 
 	if cfg.Count {
 		fmt.Printf("%d\n", result.Count)

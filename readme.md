@@ -21,3 +21,4 @@
 go run ./cmd/main.go --cluster localhost:9090,localhost:9091,localhost:9092 -i -A 5 apple test1.txt
 
 go run ./cmd/main.go --cluster localhost:9090,localhost:9091,localhost:9092 -i -A 5 -B 1 banana test1.txt
+
