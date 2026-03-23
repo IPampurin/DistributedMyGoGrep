@@ -103,7 +103,7 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 	// 4. Кворум и таймаут
 	quorum := len(cfg.ClusterAddrs)/2 + 1
 	successCount := 0
-	firstSuccess := &Result{}
+	var firstSuccess *Result
 
 	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer timeoutCancel()
