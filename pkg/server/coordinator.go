@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -39,18 +41,20 @@ type Result struct {
 
 // Shard - информация о шарде
 type Shard struct {
-	ID           int        // порядковый номер шарда
-	Lines        []string   // строки этого шарда
-	StartLineNum int        // глобальный номер первой строки
-	SuccessCount int        // сколько успешных ответов получено
-	Result       *Result    // первый успешный результат (для вывода)
-	Replicas     []string   // адреса воркеров, которым отправлен шард
-	mu           sync.Mutex // защита SuccessCount и Result
+	ID               int             // порядковый номер шарда
+	Lines            []string        // строки этого шарда
+	StartLineNum     int             // глобальный номер первой строки
+	SuccessCount     int             // количество успешных ответов
+	Result           *Result         // первый успешный результат (для вывода)
+	OriginalReplicas []string        // первоначальные реплики
+	UsedWorkers      map[string]bool // все воркеры, которым отправляли
+	ExpectedResp     int             // сколько ответов ожидаем (включая перераспределённые)
+	mu               sync.Mutex      // защита SuccessCount и Result
 }
 
-// Coordinator реализует распределённую обработку с шардированием и репликацией, кворумом на каждый шард
+// Coordinator реализует распределённую обработку с шардированием, репликацией репликацией и перераспределением,
 // (разбивает входные данные на шарды, каждый шард отправляет на R реплик, ждёт кворума (R/2+1 успехов)
-// для каждого шарда, затем объединяет результаты)
+// для каждого шарда, при необходимости перераспределяет, затем объединяет результаты)
 func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.Reader) error {
 
 	workers := cfg.ClusterAddrs
@@ -77,16 +81,28 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 	slog.Info("Прочитано строк", "count", totalLines)
 
 	// 2. Определяем параметры шардирования и репликации
-	numShards := numWorkers * 2 // количество шардов (можно вынести в конфиг)
-	if numShards == 0 {
-		numShards = 1
-	}
-
-	replicationFactor := 2 // фиксированный фактор репликации, должен быть <= numWorkers
-	if replicationFactor > numWorkers {
-		replicationFactor = numWorkers
+	replicationFactor := 2
+	if rfStr := os.Getenv("REPLICATION_FACTOR_MYGOGREP"); rfStr != "" {
+		if rf, err := strconv.Atoi(rfStr); err == nil && rf > 0 {
+			replicationFactor = rf
+			if replicationFactor > numWorkers {
+				replicationFactor = numWorkers
+				slog.Warn("Фактор репликации больше числа воркеров, установлен в", "replicationFactor", replicationFactor)
+			}
+		} else {
+			slog.Warn("Некорректное значение REPLICATION_FACTOR_MYGOGREP, используется значение по умолчанию", "value", rfStr)
+		}
 	}
 	quorumPerShard := replicationFactor/2 + 1
+
+	numShards := numWorkers * 2
+	if nsStr := os.Getenv("COUNT_SCHARD_MYGOGREP"); nsStr != "" {
+		if ns, err := strconv.Atoi(nsStr); err == nil && ns > 0 {
+			numShards = ns
+		} else {
+			slog.Warn("Некорректное значение COUNT_SCHARD_MYGOGREP, используется значение по умолчанию", "value", nsStr)
+		}
+	}
 
 	// вычисляем размер шарда
 	shardSize := (totalLines + numShards - 1) / numShards
@@ -108,10 +124,11 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 		}
 
 		shard := &Shard{
-			ID:           i,
-			Lines:        allLines[start:end],
-			StartLineNum: start + 1, // нумерация строк начинается с 1
-			Replicas:     make([]string, 0, replicationFactor),
+			ID:               i,
+			Lines:            allLines[start:end],
+			StartLineNum:     start + 1, // нумерация строк начинается с 1
+			OriginalReplicas: make([]string, 0, replicationFactor),
+			UsedWorkers:      make(map[string]bool),
 		}
 
 		shards = append(shards, shard)
@@ -121,25 +138,27 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 
 	slog.Info("Шардирование", "шардов", numShards, "размер_шарда", shardSize, "репликация", replicationFactor, "кворум_на_шард", quorumPerShard)
 
-	// 3. Распределяем реплики: для каждого шарда выбираем replicationFactor разных воркеров по кругу
-	//    (для шарда i реплики будут workers[(i+j) % numWorkers] для j=0..replicationFactor-1)
+	// 3. Распределяем первоначальные реплики: для каждого шарда выбираем replicationFactor разных воркеров
 	for i, shard := range shards {
 		for j := 0; j < replicationFactor; j++ {
 
 			workerIdx := (i + j) % numWorkers
-			shard.Replicas = append(shard.Replicas, workers[workerIdx])
+			addr := workers[workerIdx]
+			shard.OriginalReplicas = append(shard.OriginalReplicas, addr)
+			shard.UsedWorkers[addr] = true
 		}
 
-		slog.Debug("Шард", "id", shard.ID, "реплики", shard.Replicas, "строк", len(shard.Lines))
+		shard.ExpectedResp = len(shard.OriginalReplicas)
+
+		slog.Debug("Шард", "id", shard.ID, "реплики", shard.OriginalReplicas, "строк", len(shard.Lines))
 	}
 
-	// 4. Отправляем задачи на все реплики каждого шарда
-
-	// канал для уведомлений о завершении обработки шарда (содержит ID шарда и результат)
-	shardDone := make(chan struct {
+	// канал для уведомлений о завершении обработки шарда
+	type shardNotify struct {
 		shardID int
 		result  *Result
-	}, numShards*replicationFactor) // буфер на все возможные ответы
+	}
+	notifyChan := make(chan shardNotify, numShards*replicationFactor*2) // буфер с запасом
 
 	// создаём отменяемый контекст для прерывания при таймауте
 	workerCtx, workerCancel := context.WithCancel(ctx)
@@ -147,86 +166,130 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 
 	var wg sync.WaitGroup
 
-	for _, shard := range shards {
-		for _, addr := range shard.Replicas {
-			wg.Add(1)
-			go func(shard *Shard, addr string) {
-				defer wg.Done()
+	// функция отправки задачи на конкретный воркер для шарда
+	sendTask := func(shard *Shard, addr string) {
 
-				// формируем задачу для этого шарда
-				task := Task{
-					Lines:        shard.Lines,
-					StartLineNum: shard.StartLineNum,
-					After:        cfg.After,
-					Before:       cfg.Before,
-					Context:      cfg.Context,
-					Count:        cfg.Count,
-					IgnoreCase:   cfg.IgnoreCase,
-					Invert:       cfg.Invert,
-					Fixed:        cfg.Fixed,
-					LineNumber:   cfg.LineNumber,
-					Pattern:      cfg.Pattern,
-				}
+		defer wg.Done()
 
-				res, err := sendTaskToWorker(workerCtx, addr, task)
-				if err != nil {
-					slog.Error("Ошибка при обращении к воркеру", "шард", shard.ID, "addr", addr, "error", err)
-					res = &Result{Error: err.Error()}
-				}
+		task := Task{
+			Lines:        shard.Lines,
+			StartLineNum: shard.StartLineNum,
+			After:        cfg.After,
+			Before:       cfg.Before,
+			Context:      cfg.Context,
+			Count:        cfg.Count,
+			IgnoreCase:   cfg.IgnoreCase,
+			Invert:       cfg.Invert,
+			Fixed:        cfg.Fixed,
+			LineNumber:   cfg.LineNumber,
+			Pattern:      cfg.Pattern,
+		}
 
-				// отправляем результат в канал
-				select {
-				case shardDone <- struct {
-					shardID int
-					result  *Result
-				}{shard.ID, res}:
-				case <-workerCtx.Done():
-					// координатор уже завершил работу
-				}
-			}(shard, addr)
+		res, err := sendTaskToWorker(workerCtx, addr, task)
+		if err != nil {
+			slog.Error("Ошибка при обращении к воркеру", "шард", shard.ID, "addr", addr, "error", err)
+			res = &Result{Error: err.Error()}
+		}
+
+		select {
+		case notifyChan <- shardNotify{shard.ID, res}:
+		case <-workerCtx.Done():
 		}
 	}
 
-	// 5. Собираем результаты, обновляем состояние шардов, ждём кворума для каждого
-	shardResults := make([]*Result, numShards) // итоговый результат для каждого шарда
-	shardCompleted := make([]bool, numShards)  // флаг, что для шарда получен кворум
+	// запускаем отправку на все первоначальные реплики
+	for _, shard := range shards {
+		for _, addr := range shard.OriginalReplicas {
+			wg.Add(1)
+			go sendTask(shard, addr)
+		}
+	}
+
+	// 4. Собираем результаты и перераспределяем
+	shardCompleted := make([]bool, numShards) // флаг, что шард завершён (кворум достигнут)
+	shardResults := make([]*Result, numShards)
 	remainingShards := numShards
 
-	// таймаут на всю операцию (например, 30 секунд)
 	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer timeoutCancel()
 
 	for remainingShards > 0 {
+
 		select {
-		case notif := <-shardDone:
+		case notif := <-notifyChan:
 			shard := shards[notif.shardID]
 			shard.mu.Lock()
-			// если для шарда уже достигнут кворум, игнорируем дополнительные ответы
 			if shardCompleted[shard.ID] {
+				// шард уже завершён, игнорируем лишние ответы
 				shard.mu.Unlock()
 				continue
 			}
 			if notif.result.Error == "" {
 				shard.SuccessCount++
 				if shard.Result == nil {
-					shard.Result = notif.result // запоминаем первый успешный результат
+					shard.Result = notif.result
 				}
 			} else {
 				slog.Warn("Ошибочный ответ для шарда", "шард", shard.ID, "error", notif.result.Error)
 			}
+			shard.ExpectedResp--
 			// проверяем, достигнут ли кворум
 			if shard.SuccessCount >= quorumPerShard {
 				shardCompleted[shard.ID] = true
 				remainingShards--
 				shardResults[shard.ID] = shard.Result
 				slog.Info("Шард обработан", "шард", shard.ID, "успешно", shard.SuccessCount)
+				shard.mu.Unlock()
+				continue
 			}
+			// если ожидаем ещё ответы, просто выходим
+			if shard.ExpectedResp > 0 {
+				shard.mu.Unlock()
+				continue
+			}
+
+			// ответы от всех первоначальных реплик получены, но кворум не достигнут,
+			// пытаемся перераспределить на другие воркеры
+			availableWorkers := make([]string, 0, numWorkers)
+			for _, w := range workers {
+				if !shard.UsedWorkers[w] {
+					availableWorkers = append(availableWorkers, w)
+				}
+			}
+
+			if len(availableWorkers) == 0 {
+				// нет свободных воркеров - шард не может быть обработан
+				shard.mu.Unlock()
+				return fmt.Errorf("шард %d: не удалось достичь кворума, нет доступных воркеров", shard.ID)
+			}
+
+			// выбираем до replicationFactor новых воркеров (но не более доступных)
+			newReplicas := replicationFactor
+			if newReplicas > len(availableWorkers) {
+				newReplicas = len(availableWorkers)
+			}
+
+			newWorkers := availableWorkers[:newReplicas]
+			for _, w := range newWorkers {
+				shard.UsedWorkers[w] = true
+			}
+
+			shard.ExpectedResp += newReplicas
 			shard.mu.Unlock()
 
+			// запускаем отправку на новые реплики
+			for _, addr := range newWorkers {
+				wg.Add(1)
+				go sendTask(shard, addr)
+			}
+
+			slog.Info("Перераспределение шарда", "шард", shard.ID, "новые_воркеры", newWorkers)
+
 		case <-timeoutCtx.Done():
-			workerCancel() // останавливаем все горутины
+			workerCancel()
 			wg.Wait()
 			return fmt.Errorf("таймаут: не удалось обработать все шарды за отведённое время")
+
 		case <-ctx.Done():
 			workerCancel()
 			wg.Wait()
@@ -234,26 +297,28 @@ func Coordinator(ctx context.Context, cfg *configuration.Config, inputReader io.
 		}
 	}
 
-	// 6. После обработки всех шардов отменяем контекст, чтобы горутины не висели
+	// 5. Все шарды обработаны
 	workerCancel()
 	wg.Wait()
-	close(shardDone)
+	close(notifyChan)
 
-	// 7. Агрегируем результаты всех шардов в правильном порядке
+	// 6. Агрегация и вывод
 	if cfg.Count {
+
 		totalCount := 0
-		for i, res := range shardResults {
+		for _, res := range shardResults {
 			if res == nil {
-				return fmt.Errorf("шард %d не имеет результата", i)
+				return fmt.Errorf("шард не имеет результата")
 			}
 			totalCount += res.Count
 		}
 		fmt.Printf("%d\n", totalCount)
+
 	} else {
-		// Выводим строки из каждого шарда в порядке шардов
-		for i, res := range shardResults {
+
+		for _, res := range shardResults {
 			if res == nil {
-				return fmt.Errorf("шард %d не имеет результата", i)
+				return fmt.Errorf("шард не имеет результата")
 			}
 			for _, line := range res.Lines {
 				fmt.Println(line)
