@@ -65,11 +65,16 @@ func main() {
 	}
 
 	// выбираем режим работы по количеству адресов в кластере
-	switch len(cfg.ClusterAddrs) {
+	switch len(cfg.SrvAddrs) {
 
 	case 0:
 		// локальный режим
 		slog.Info("Локальный режим")
+
+		if cfg.Pattern == "" {
+			slog.Error("Локальный режим: требуется шаблон")
+			os.Exit(1)
+		}
 
 		result, err := local.Grep(cfg, inputReader)
 		if err != nil {
@@ -81,7 +86,7 @@ func main() {
 
 	case 1:
 		// режим одиночной ноды (ждёт подключений)
-		slog.Info("Режим одиночной ноды", "addr", cfg.ClusterAddrs[0])
+		slog.Info("Режим одиночной ноды", "addr", cfg.SrvAddrs[0])
 
 		workerCtx, workerCancel := context.WithTimeout(ctx, nodeTimeout)
 		defer workerCancel()
@@ -93,9 +98,14 @@ func main() {
 
 	default:
 		// режим координатора
-		slog.Info("Режим координатора", "cluster", cfg.ClusterAddrs)
+		slog.Info("Режим координатора", "cluster", cfg.SrvAddrs)
 
-		coord := distributed.New(cfg, cfg.ClusterAddrs)
+		if cfg.Pattern == "" {
+			slog.Error("Распределённый режим: требуется шаблон")
+			os.Exit(1)
+		}
+
+		coord := distributed.New(cfg, cfg.SrvAddrs)
 		if err := coord.Run(ctx, inputReader); err != nil {
 			slog.Error("Координатор завершился с ошибкой", "error", err)
 			os.Exit(1)

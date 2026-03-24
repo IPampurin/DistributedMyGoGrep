@@ -18,20 +18,20 @@ import (
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/network"
 )
 
-// Shard – информация о шарде.
+// Shard - информация о шарде
 type Shard struct {
-	ID               int
-	Lines            []string
-	StartLineNum     int
-	SuccessCount     int
-	Result           *models.Result
-	OriginalReplicas []string
-	UsedWorkers      map[string]bool
-	ExpectedResp     int
-	mu               sync.Mutex
+	ID               int             // порядковый номер шарда
+	Lines            []string        // строки этого шарда
+	StartLineNum     int             // глобальный номер первой строки
+	SuccessCount     int             // количество успешных ответов
+	Result           *models.Result  // первый успешный результат (для вывода)
+	OriginalReplicas []string        // первоначальные реплики
+	UsedWorkers      map[string]bool // все воркеры, которым отправляли
+	ExpectedResp     int             // сколько ответов ожидаем (включая перераспределённые)
+	mu               sync.Mutex      // защита SuccessCount и Result
 }
 
-// Coordinator управляет распределённой обработкой.
+// Coordinator управляет распределённой обработкой
 type Coordinator struct {
 	cfg               *configuration.Config
 	workers           []string
@@ -43,8 +43,9 @@ type Coordinator struct {
 	shardResults      []*models.Result
 }
 
-// New создаёт координатора.
+// New создаёт координатора
 func New(cfg *configuration.Config, workers []string) *Coordinator {
+
 	return &Coordinator{
 		cfg:     cfg,
 		workers: workers,
@@ -52,8 +53,9 @@ func New(cfg *configuration.Config, workers []string) *Coordinator {
 	}
 }
 
-// Run запускает процесс обработки.
+// Run запускает процесс обработки
 func (c *Coordinator) Run(ctx context.Context, inputReader io.Reader) error {
+
 	// 1. Чтение всех строк
 	scanner := bufio.NewScanner(inputReader)
 	lines := make([]string, 0)
@@ -139,8 +141,9 @@ func (c *Coordinator) Run(ctx context.Context, inputReader io.Reader) error {
 	return c.processTasks(ctx)
 }
 
-// ensureWorkers проверяет доступность всех воркеров, запускает недостающие.
+// ensureWorkers проверяет доступность всех воркеров, запускает недостающие
 func (c *Coordinator) ensureWorkers(ctx context.Context) error {
+
 	// Для простоты проверяем только первый адрес из списка (если он недоступен, запускаем).
 	// В полной версии нужно проверить все уникальные адреса.
 	// Здесь мы упрощаем: если какой-то воркер не отвечает, запускаем его как дочерний процесс.
@@ -171,16 +174,19 @@ func (c *Coordinator) ensureWorkers(ctx context.Context) error {
 
 // isWorkerReachable проверяет, доступен ли воркер по TCP.
 func (c *Coordinator) isWorkerReachable(addr string) bool {
+
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
 		return false
 	}
 	conn.Close()
+
 	return true
 }
 
 // processTasks отправляет задачи и собирает результаты.
 func (c *Coordinator) processTasks(ctx context.Context) error {
+
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
 
@@ -331,5 +337,6 @@ func (c *Coordinator) processTasks(ctx context.Context) error {
 			}
 		}
 	}
+
 	return nil
 }

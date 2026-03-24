@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/models"
@@ -27,7 +28,6 @@ type TaskHandler func(task models.Task) (*models.Result, error)
 type TCPClient struct{}
 
 func (c *TCPClient) SendTask(ctx context.Context, addr string, task models.Task) (*models.Result, error) {
-
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -73,7 +73,6 @@ func (c *TCPClient) SendTask(ctx context.Context, addr string, task models.Task)
 	if result.Error != "" {
 		return &result, fmt.Errorf("воркер вернул ошибку: %s", result.Error)
 	}
-
 	return &result, nil
 }
 
@@ -83,6 +82,8 @@ type TCPServer struct {
 }
 
 func (s *TCPServer) Start(ctx context.Context, addr string, handler TaskHandler) error {
+	s.handler = handler // <-- ИСПРАВЛЕНО: сохраняем обработчик
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("не удалось запустить слушатель на %s: %w", addr, err)
@@ -98,8 +99,7 @@ func (s *TCPServer) Start(ctx context.Context, addr string, handler TaskHandler)
 				case <-ctx.Done():
 					return
 				default:
-					// логируем ошибку, но продолжаем
-					// здесь можно вывести в лог, но для простоты игнорируем
+					slog.Error("Ошибка при приёме соединения", "error", err)
 					continue
 				}
 			}
@@ -109,6 +109,7 @@ func (s *TCPServer) Start(ctx context.Context, addr string, handler TaskHandler)
 
 	// ждём отмены контекста
 	<-ctx.Done()
+	slog.Info("Остановка сервера", "addr", addr)
 	return nil
 }
 
@@ -118,11 +119,12 @@ func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn) {
 	// читаем задачу
 	task, err := readTask(conn)
 	if err != nil {
+		slog.Error("Ошибка чтения задачи", "error", err)
 		sendResult(conn, models.Result{Error: err.Error()})
 		return
 	}
 	// обрабатываем
-	res, err := s.handler(*task)
+	res, err := s.handler(*task) // здесь handler уже не nil
 	if err != nil {
 		sendResult(conn, models.Result{Error: err.Error()})
 		return
@@ -130,7 +132,7 @@ func (s *TCPServer) handleConnection(ctx context.Context, conn net.Conn) {
 	sendResult(conn, *res)
 }
 
-// readTask аналогична предыдущей реализации, но использует models.Task.
+// readTask читает из соединения задачу (длина + JSON).
 func readTask(conn net.Conn) (*models.Task, error) {
 	lenBuf := make([]byte, 4)
 	if _, err := io.ReadFull(conn, lenBuf); err != nil {
@@ -151,26 +153,22 @@ func readTask(conn net.Conn) (*models.Task, error) {
 	return &task, nil
 }
 
+// sendResult отправляет результат в соединение (длина + JSON).
 func sendResult(conn net.Conn, res models.Result) error {
-
 	data, err := json.Marshal(res)
 	if err != nil {
 		return fmt.Errorf("ошибка сериализации результата: %w", err)
 	}
-
 	lenBuf := make([]byte, 4)
 	lenBuf[0] = byte(len(data) >> 24)
 	lenBuf[1] = byte(len(data) >> 16)
 	lenBuf[2] = byte(len(data) >> 8)
 	lenBuf[3] = byte(len(data))
-
 	if _, err := conn.Write(lenBuf); err != nil {
 		return fmt.Errorf("ошибка отправки длины: %w", err)
 	}
-
 	if _, err := conn.Write(data); err != nil {
 		return fmt.Errorf("ошибка отправки данных: %w", err)
 	}
-
 	return nil
 }

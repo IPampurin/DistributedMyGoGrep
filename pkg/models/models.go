@@ -1,7 +1,5 @@
 package models
 
-import "sync"
-
 // Task - задача от координатора воркеру
 type Task struct {
 	Lines        []string `json:"lines"`          // строки для обработки
@@ -23,19 +21,6 @@ type Result struct {
 	Lines []string `json:"lines,omitempty"` // строки (если не флаг -c)
 	Count int      `json:"count,omitempty"` // количество совпадений (если флаг -c)
 	Error string   `json:"error,omitempty"` // текст ошибки
-}
-
-// Shard - информация о шарде
-type Shard struct {
-	ID               int             // порядковый номер шарда
-	Lines            []string        // строки этого шарда
-	StartLineNum     int             // глобальный номер первой строки
-	SuccessCount     int             // количество успешных ответов
-	Result           *Result         // первый успешный результат (для вывода)
-	OriginalReplicas []string        // первоначальные реплики
-	UsedWorkers      map[string]bool // все воркеры, которым отправляли
-	ExpectedResp     int             // сколько ответов ожидаем (включая перераспределённые)
-	mu               sync.Mutex      // защита SuccessCount и Result
 }
 
 // GrepResult содержит результат обработки (строки или количество)

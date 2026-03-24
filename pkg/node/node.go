@@ -14,10 +14,10 @@ import (
 // Run запускает воркер-сервер на адресе из cfg.ClusterAddrs[0]
 func Run(ctx context.Context, cfg *configuration.Config) error {
 
-	if len(cfg.ClusterAddrs) == 0 {
+	if len(cfg.SrvAddrs) == 0 {
 		return fmt.Errorf("не указан адрес для воркер-сервера")
 	}
-	addr := cfg.ClusterAddrs[0]
+	addr := cfg.SrvAddrs[0]
 
 	handler := func(task models.Task) (*models.Result, error) {
 		// конвертируем Task в конфиг для ProcessLines
@@ -32,17 +32,22 @@ func Run(ctx context.Context, cfg *configuration.Config) error {
 			LineNumber: task.LineNumber,
 			Pattern:    task.Pattern,
 		}
+
 		res, err := service.ProcessLines(workerCfg, task.Lines, task.StartLineNum)
 		if err != nil {
 			return nil, err
 		}
+
 		if res.IsCount {
 			return &models.Result{Count: res.Count}, nil
 		}
+
 		return &models.Result{Lines: res.Lines}, nil
 	}
 
 	server := &network.TCPServer{}
+
 	slog.Info("Запуск воркер-сервера", "addr", addr)
+
 	return server.Start(ctx, addr, handler)
 }
