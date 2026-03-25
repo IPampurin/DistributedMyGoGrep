@@ -72,16 +72,24 @@ func main() {
 
 	case configuration.ModeNodes:
 		// режим ноды (ждёт подключений)
-		slog.Info("Режим сервера (запуск одного или нескольких узлов кластера)", "addrs", cfg.SrvAddrs)
+		slog.Info("Режим сервера", "addrs", cfg.SrvAddrs, "protocol", cfg.Protocol)
 
 		var wg sync.WaitGroup
 		for _, addr := range cfg.SrvAddrs {
 			wg.Add(1)
 			go func(addr string) {
 				defer wg.Done()
-				server := &network.HTTPServer{}
+
+				var srv network.Server
+				switch cfg.Protocol {
+				case "http":
+					srv = &network.HTTPServer{}
+				case "grpc":
+					srv = &network.GRPCServer{}
+				}
+
 				// воркеру не нужны свои флаги grep - они приходят в задаче
-				if err := server.Start(ctx, addr, worker.Handler()); err != nil {
+				if err := srv.Start(ctx, addr, worker.Handler()); err != nil {
 					slog.Error("Воркер-сервер завершился с ошибкой", "addr", addr, "error", err)
 				}
 			}(addr)
@@ -92,8 +100,18 @@ func main() {
 
 	case configuration.ModeMaster:
 		// режим мастера
-		slog.Info("Режим мастера", "cluster", cfg.SrvAddrs)
-		coord := master.New(cfg)
+		slog.Info("Режим мастера", "cluster", cfg.SrvAddrs, "protocol", cfg.Protocol)
+
+		var client network.Client
+		switch cfg.Protocol {
+		case "http":
+			client = network.NewHTTPClient()
+		case "grpc":
+			client = network.NewGRPCClient()
+			defer client.(*network.GRPCClient).Close()
+		}
+
+		coord := master.New(cfg, client)
 		if err := coord.Run(ctx, inputReader); err != nil {
 			slog.Error("Координатор завершился с ошибкой", "error", err)
 			os.Exit(1)

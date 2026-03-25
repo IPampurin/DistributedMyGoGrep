@@ -26,11 +26,11 @@ type Master struct {
 }
 
 // New создаёт координатора
-func New(cfg *configuration.Config) *Master {
+func New(cfg *configuration.Config, client network.Client) *Master {
 	return &Master{
 		cfg:     cfg,
 		workers: cfg.SrvAddrs,
-		client:  network.NewHTTPClient(),
+		client:  client,
 	}
 }
 
@@ -105,7 +105,7 @@ func (m *Master) ensureWorkers(ctx context.Context) error {
 	for _, addr := range m.workers {
 		if !m.isWorkerReachable(addr) {
 			slog.Info("Воркер недоступен, запускаем", "addr", addr)
-			cmd := exec.CommandContext(ctx, exePath, "--addr", addr)
+			cmd := exec.CommandContext(ctx, exePath, "--addr", addr, "--protocol", m.cfg.Protocol)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Start(); err != nil {

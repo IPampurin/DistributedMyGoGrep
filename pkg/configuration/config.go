@@ -29,12 +29,15 @@ type Config struct {
 	Filename   string   // имя файла (если пусто - читать из stdin)
 	SrvAddrs   []string // список адресов кластера
 	Mode       string   // вычисленный режим работы
+	Protocol   string   // http или grpc (по умолчанию http)
 }
 
 // примеры запуска:
 // локальный режим - ./mygogrep -i banana test1.txt
 // режим ноды      - ./mygogrep --addr localhost:9090,localhost:9091
+//                 - ./mygogrep --addr localhost:9090,localhost:9091 --protocol grpc
 // режим мастера   - ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt
+//                 - ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 --protocol grpc -i banana test1.txt
 
 // ParseConfig обрабатывает аргументы командной строки и заполняет Config
 func ParseConfig() (*Config, error) {
@@ -56,6 +59,10 @@ func ParseConfig() (*Config, error) {
 	flag.StringVar(&addrFlag, "addr", "", "Режим ноды: список адресов узлов через запятую (например, localhost:9090,localhost:9091)")
 	flag.StringVar(&clusterFlag, "cluster", "", "Режим мастера: список адресов кластера через запятую")
 
+	// флаг протокола
+	var protocolFlag string
+	flag.StringVar(&protocolFlag, "protocol", "http", "Протокол для сетевого взаимодействия: http или grpc")
+
 	// настраиваем вывод помощи
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Использование: %s [опции] [режим]\n\n", os.Args[0])
@@ -64,8 +71,10 @@ func ParseConfig() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "     Пример: %s -i banana test1.txt\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  2. Режим ноды: %s --addr адрес1,адрес2,...\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "     Пример: %s --addr localhost:9090,localhost:9091\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "             %s --addr localhost:9090,localhost:9091 --protocol grpc\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  3. Режим мастера: %s --cluster адрес1,адрес2,... [флаги grep] шаблон [файл]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "     Пример: %s --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "             %s --cluster localhost:9090,localhost:9091,localhost:9092 --protocol grpc -i banana test1.txt\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Флаги: ")
 		flag.PrintDefaults()
 	}
@@ -73,6 +82,11 @@ func ParseConfig() (*Config, error) {
 	flag.Parse()
 
 	args := flag.Args()
+
+	cfg.Protocol = protocolFlag
+	if cfg.Protocol != "http" && cfg.Protocol != "grpc" {
+		return nil, fmt.Errorf("неподдерживаемый протокол %s, используйте http или grpc", cfg.Protocol)
+	}
 
 	// определяем режим работы
 	switch {
