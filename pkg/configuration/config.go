@@ -11,8 +11,8 @@ import (
 // режимы работы программы
 const (
 	ModeLocal  = "local"  // обычный grep (без сети)
-	ModeNode   = "node"   // режим сервера (запуск одного или нескольких узлов кластера)
-	ModeClient = "client" // режим клиента (отправка задания на кластер)
+	ModeNodes  = "nodes"  // режим сервера (запуск одного или нескольких узлов кластера)
+	ModeMaster = "master" // режим мастера (отправка задания кластеру)
 )
 
 // Config хранит все параметры командной строки
@@ -34,10 +34,10 @@ type Config struct {
 // примеры запуска:
 // локальный режим - ./mygogrep -i banana test1.txt
 // режим ноды      - ./mygogrep --addr localhost:9090,localhost:9091
-// режим клиента   - ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt
+// режим мастера   - ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt
 
-// ParseFlags обрабатывает аргументы командной строки и заполняет Config
-func ParseFlags() (*Config, error) {
+// ParseConfig обрабатывает аргументы командной строки и заполняет Config
+func ParseConfig() (*Config, error) {
 
 	cfg := &Config{}
 
@@ -54,7 +54,7 @@ func ParseFlags() (*Config, error) {
 	// флаги распределённого режима
 	var addrFlag, clusterFlag string
 	flag.StringVar(&addrFlag, "addr", "", "Режим ноды: список адресов узлов через запятую (например, localhost:9090,localhost:9091)")
-	flag.StringVar(&clusterFlag, "cluster", "", "Режим клиента: список адресов кластера через запятую")
+	flag.StringVar(&clusterFlag, "cluster", "", "Режим мастера: список адресов кластера через запятую")
 
 	// настраиваем вывод помощи
 	flag.Usage = func() {
@@ -78,38 +78,49 @@ func ParseFlags() (*Config, error) {
 	switch {
 	case addrFlag != "": // режим ноды
 
-		cfg.Mode = ModeNode
+		cfg.Mode = ModeNodes
 		addrs, err := parseClusterAddrs(addrFlag)
 		if err != nil {
-			return nil, fmt.Errorf("ошибка в --addr: %v", err)
+			return nil, fmt.Errorf("ошибка в указании адресов в --addr: %v", err)
 		}
 		if err := validateAddrs(addrs); err != nil {
-			return nil, fmt.Errorf("ошибка в --addr: %v", err)
+			return nil, fmt.Errorf("ошибка в адресе в --addr: %v", err)
 		}
 		cfg.SrvAddrs = addrs
+		// дополнительно проверяем
+		if len(cfg.SrvAddrs) == 0 {
+			return nil, fmt.Errorf("ошибка в параметрах в --addr: %v", err)
+		}
 
 		return cfg, nil // в режиме ноды шаблон и имя файла не используются, игнорируем переданные аргументы
 
-	case clusterFlag != "": // режим клиента
+	case clusterFlag != "": // мастер режим
 
-		cfg.Mode = ModeClient
+		cfg.Mode = ModeMaster
 		addrs, err := parseClusterAddrs(clusterFlag)
 		if err != nil {
-			return nil, fmt.Errorf("ошибка в --cluster: %v", err)
+			return nil, fmt.Errorf("ошибка в указании адресов в --cluster: %v", err)
 		}
 		if err := validateAddrs(addrs); err != nil {
-			return nil, fmt.Errorf("ошибка в --cluster: %v", err)
+			return nil, fmt.Errorf("ошибка в адресе в --cluster: %v", err)
 		}
 		cfg.SrvAddrs = addrs
+		// дополнительно проверяем
+		if len(cfg.SrvAddrs) == 0 {
+			return nil, fmt.Errorf("ошибка в параметрах в --cluster: %v", err)
+		}
+
 		if len(args) < 1 {
-			return nil, fmt.Errorf("в режиме клиента необходимо указать шаблон поиска")
+			return nil, fmt.Errorf("в режиме мастера необходимо указать шаблон поиска")
 		}
 		cfg.Pattern = args[0]
+
 		if len(args) >= 2 {
 			cfg.Filename = args[1]
 		} else {
 			cfg.Filename = "" // пустая строка означает чтение из stdin
 		}
+
 		// обработка флага -C
 		if cfg.Context > 0 {
 			cfg.After = cfg.Context
@@ -118,19 +129,21 @@ func ParseFlags() (*Config, error) {
 
 		return cfg, nil
 
-	default:
+	default: // локальный режим
 
-		// локальный режим
 		cfg.Mode = ModeLocal
+
 		if len(args) < 1 {
 			return nil, fmt.Errorf("в локальном режиме необходимо указать шаблон поиска")
 		}
 		cfg.Pattern = args[0]
+
 		if len(args) >= 2 {
 			cfg.Filename = args[1]
 		} else {
 			cfg.Filename = "" // пустая строка означает чтение из stdin
 		}
+
 		// обработка флага -C
 		if cfg.Context > 0 {
 			cfg.After = cfg.Context

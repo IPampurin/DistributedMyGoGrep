@@ -31,8 +31,8 @@ type Shard struct {
 	mu               sync.Mutex      // защита SuccessCount и Result
 }
 
-// Coordinator управляет распределённой обработкой
-type Coordinator struct {
+// Master управляет распределённой обработкой
+type Master struct {
 	cfg               *configuration.Config
 	workers           []string
 	client            network.Client
@@ -44,9 +44,9 @@ type Coordinator struct {
 }
 
 // New создаёт координатора
-func New(cfg *configuration.Config, workers []string) *Coordinator {
+func New(cfg *configuration.Config, workers []string) *Master {
 
-	return &Coordinator{
+	return &Master{
 		cfg:     cfg,
 		workers: workers,
 		client:  &network.TCPClient{},
@@ -54,7 +54,7 @@ func New(cfg *configuration.Config, workers []string) *Coordinator {
 }
 
 // Run запускает процесс обработки
-func (c *Coordinator) Run(ctx context.Context, inputReader io.Reader) error {
+func (c *Master) Run(ctx context.Context, inputReader io.Reader) error {
 
 	// 1. Чтение всех строк
 	scanner := bufio.NewScanner(inputReader)
@@ -142,7 +142,7 @@ func (c *Coordinator) Run(ctx context.Context, inputReader io.Reader) error {
 }
 
 // ensureWorkers проверяет доступность всех воркеров, запускает недостающие
-func (c *Coordinator) ensureWorkers(ctx context.Context) error {
+func (c *Master) ensureWorkers(ctx context.Context) error {
 
 	// Для простоты проверяем только первый адрес из списка (если он недоступен, запускаем).
 	// В полной версии нужно проверить все уникальные адреса.
@@ -173,7 +173,7 @@ func (c *Coordinator) ensureWorkers(ctx context.Context) error {
 }
 
 // isWorkerReachable проверяет, доступен ли воркер по TCP.
-func (c *Coordinator) isWorkerReachable(addr string) bool {
+func (c *Master) isWorkerReachable(addr string) bool {
 
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -185,7 +185,7 @@ func (c *Coordinator) isWorkerReachable(addr string) bool {
 }
 
 // processTasks отправляет задачи и собирает результаты.
-func (c *Coordinator) processTasks(ctx context.Context) error {
+func (c *Master) processTasks(ctx context.Context) error {
 
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()

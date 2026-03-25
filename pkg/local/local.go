@@ -10,8 +10,8 @@ import (
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/service"
 )
 
-// Grep выполняет grep локально (один узел)
-func Grep(cfg *configuration.Config, input io.Reader) (*models.GrepResult, error) {
+// GrepLocal выполняет grep локально (один сам себе узел)
+func GrepLocal(cfg *configuration.Config, input io.Reader) (*models.GrepResult, error) {
 
 	// считываем все строки в слайс
 	scanner := bufio.NewScanner(input)

@@ -22,3 +22,31 @@ go run ./cmd/main.go --cluster localhost:9090,localhost:9091,localhost:9092 -i -
 
 go run ./cmd/main.go --cluster localhost:9090,localhost:9091,localhost:9092 -i -A 5 -B 1 banana test1.txt
 
+
+
+DistributedMyGoGrep/
+├── cmd/
+│   └── main.go                     # организация, запуск режима (вызов ProcessLines или запуск нод или запуск мастера)
+├── pkg/
+│   ├── service/
+│   │   └── processor.go            # ProcessLines
+│   ├── configuration/
+│   │   └── config.go               # структура Config, парсинг флагов, выдача в main() валидного config
+│   ├── models/
+│   │   ├── models.go               # Task, Result, GrepResult
+│   ├── network/                    # абстракция для HTTP/gRPC
+│   │   ├── clientHTTP.go           # интерфейс и реализация HTTP-клиента
+│   │   ├── serverHTTP.go           # интерфейс и реализация HTTP-сервера
+│   │   ├── clientTCP.go            # интерфейс и реализация TCP-клиента
+│   │   └── serverTCP.go            # интерфейс и реализация TCP-сервера
+│   ├── master/                     # логика мастера, структуры Master, Shard
+│   │   ├── master.go               # проверка работоспособности кластера (всё ли запущено), управление разбивкой, отправкой, сбором и проверкой
+│   │   ├── splitter.go             # разбивка входных данных на части
+│   │   ├── dispatcher.go           # отправка заданий, сбор результатов
+│   │   └── quorum.go               # проверка кворума, агрегация
+│   └── worker/                     # логика воркера
+│      └── handler.go               # обработчик HTTP-запроса, вызов grep.Process
+├── proto/                          # (для будущего gRPC)
+├── test/                           # тесты
+├── readme.md                       # документация, примеры для запуска кластера
+└── go.mod, go.sum
