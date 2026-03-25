@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package grep;
+
+option go_package = "github.com/IPampurin/DistributedMyGoGrep/proto;grep";
+
+// Задача, отправляемая воркеру
+message Task {
+  repeated string lines = 1;          // строки для обработки
+  int32 start_line_num = 2;           // глобальный номер первой строки
+  int32 after = 3;                    // -A
+  int32 before = 4;                   // -B
+  int32 context = 5;                  // -C
+  bool count = 6;                     // -c
+  bool ignore_case = 7;               // -i
+  bool invert = 8;                    // -v
+  bool fixed = 9;                     // -F
+  bool line_number = 10;              // -n
+  string pattern = 11;                // шаблон поиска
+}
+
+// Результат обработки
+message Result {
+  repeated string lines = 1;          // найденные строки (если не -c)
+  int32 count = 2;                    // количество совпадений (если -c)
+  string error = 3;                   // текст ошибки
+}
+
+// Сервис grep
+service GrepService {
+  rpc ProcessTask (Task) returns (Result);
+}
