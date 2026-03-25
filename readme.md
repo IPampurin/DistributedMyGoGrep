@@ -41,14 +41,14 @@
 ```
 2. Режим воркера (ноды) запускает HTTP-сервер(ы) на указанных адресах.  
 Воркеры слушают POST-запросы на /task и возвращают результат.  
-
+```bash
     ./mygogrep --addr localhost:9090,localhost:9091
-
+```
 3. Режим мастера читает файл (или stdin), разбивает его на шарды (по умолчанию len(workers)*2),  
 отправляет задачи, дожидается кворума и выводит результат.  
-
+```bash
     ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt
-
+```
 #### Фоновые возможности:  
 
 - Мастер автоматически запускает недостающие воркеры (если они не отвечают по TCP).  
@@ -99,20 +99,24 @@ DistributedMyGoGrep/
 
 **Сборка и запуск:**  
 
-Клонируйте репозиторий:
+Клонируйте репозиторий:  
 
+```bash
     git clone https://github.com/IPampurin/DistributedMyGoGrep.git
     cd DistributedMyGoGrep
+```
 
 Соберите бинарный файл или воспользуйтесь готовым в корне проекта:
 
+```bash
     go build -o mygogrep ./cmd/main.go
+```
 
-Запустите кластер из трёх воркеров:
+Запустите кластер из трёх воркеров:  
 
     ./mygogrep --addr localhost:9090,localhost:9091,localhost:9092
 
-Запустите мастер для обработки файла:
+Запустите мастер для обработки файла:  
 
     ./mygogrep --cluster localhost:9090,localhost:9091,localhost:9092 -i apple ./tests/test1.txt
 
