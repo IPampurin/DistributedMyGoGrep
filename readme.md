@@ -29,7 +29,7 @@ DistributedMyGoGrep/
 │   └── main.go                     # организация, запуск режима (вызов ProcessLines или запуск нод или запуск мастера)
 ├── pkg/
 │   ├── service/
-│   │   └── processor.go            # ProcessLines
+│   │   └── process.go              # ProcessLines
 │   ├── configuration/
 │   │   └── config.go               # структура Config, парсинг флагов, выдача в main() валидного config
 │   ├── models/

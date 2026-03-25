@@ -7,11 +7,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/configuration"
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/local"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/master"
 	"github.com/IPampurin/DistributedMyGoGrep/pkg/models"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/network"
+	"github.com/IPampurin/DistributedMyGoGrep/pkg/worker"
 )
 
 func main() {
@@ -69,33 +73,31 @@ func main() {
 	case configuration.ModeNodes:
 		// режим ноды (ждёт подключений)
 		slog.Info("Режим сервера (запуск одного или нескольких узлов кластера)", "addrs", cfg.SrvAddrs)
-		/*
-			// запускаем отдельный сервер для каждого адреса в своей горутине
-			var wg sync.WaitGroup
-			for i, addr := range cfg.SrvAddrs {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					if err := servers.ServerRun(ctx, addr, logger); err != nil {
-						mes := fmt.Sprintf("Воркер-сервер %d по адресу %s завершился с ошибкой", i, addr)
-						slog.Error(mes, "error", err)
-					}
-				}()
-			}
-			wg.Wait()
-		*/
+
+		var wg sync.WaitGroup
+		for _, addr := range cfg.SrvAddrs {
+			wg.Add(1)
+			go func(addr string) {
+				defer wg.Done()
+				server := &network.HTTPServer{}
+				// воркеру не нужны свои флаги grep - они приходят в задаче
+				if err := server.Start(ctx, addr, worker.Handler()); err != nil {
+					slog.Error("Воркер-сервер завершился с ошибкой", "addr", addr, "error", err)
+				}
+			}(addr)
+		}
+		wg.Wait()
+
 		slog.Info("Все воркер-серверы остановлены.")
 
 	case configuration.ModeMaster:
 		// режим мастера
 		slog.Info("Режим мастера", "cluster", cfg.SrvAddrs)
-		/*
-			coord := distributed.New(cfg, cfg.SrvAddrs)
-			if err := coord.Run(ctx, inputReader); err != nil {
-				slog.Error("Координатор завершился с ошибкой", "error", err)
-				os.Exit(1)
-			}
-		*/
+		coord := master.New(cfg)
+		if err := coord.Run(ctx, inputReader); err != nil {
+			slog.Error("Координатор завершился с ошибкой", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	slog.Info("Программа корректно завершена.")

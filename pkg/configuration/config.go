@@ -64,7 +64,7 @@ func ParseConfig() (*Config, error) {
 		fmt.Fprintf(os.Stderr, "     Пример: %s -i banana test1.txt\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  2. Режим ноды: %s --addr адрес1,адрес2,...\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "     Пример: %s --addr localhost:9090,localhost:9091\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  3. Режим клиента: %s --cluster адрес1,адрес2,... [флаги grep] шаблон [файл]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  3. Режим мастера: %s --cluster адрес1,адрес2,... [флаги grep] шаблон [файл]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "     Пример: %s --cluster localhost:9090,localhost:9091,localhost:9092 -i banana test1.txt\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Флаги: ")
 		flag.PrintDefaults()
